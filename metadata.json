@@ -1,0 +1,5 @@
+{
+  "name": "V2X Blockchain Collision Simulation",
+  "description": "Mô phỏng hệ thống cảnh báo va chạm V2X tích hợp Blockchain và cảm biến MPU6050/GPS Holybro cho NCKH.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation Helpers
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'scenarioId', 'name', 'timestamp', 'data', 'status', 'userId', 'createdAt'])
+        && data.id is number
+        && data.scenarioId is number
+        && data.name is string && data.name.size() <= 200
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.data is map
+        && data.status is string
+        && data.userId == request.auth.uid
+        && data.createdAt is string; // Simplified for MVP, ideally timestamp
+    }
+
+    function isValidBlock(data) {
+      return data.keys().hasAll(['index', 'timestamp', 'messages', 'previousHash', 'hash', 'nonce', 'userId', 'createdAt'])
+        && data.index is number
+        && data.timestamp is number
+        && data.messages is list
+        && data.previousHash is string && data.previousHash.size() <= 128
+        && data.hash is string && data.hash.size() <= 128
+        && data.nonce is number
+        && data.userId == request.auth.uid
+        && data.createdAt is string;
+    }
+
+    // Collection: Reports
+    match /reports/{reportId} {
+      allow read: if isOwner(existing().userId);
+      allow list: if isOwner(resource.data.userId);
+      allow create: if isOwner(incoming().userId) && isValidReport(incoming());
+      allow update: if false; // Reports are immutable for security
+      allow delete: if isOwner(existing().userId);
+    }
+
+    // Collection: Blocks
+    match /blocks/{blockId} {
+      allow read: if isOwner(existing().userId);
+      allow list: if isOwner(resource.data.userId);
+      allow create: if isOwner(incoming().userId) && isValidBlock(incoming());
+      allow update: if false; // Blockchain is immutable
+      allow delete: if isOwner(existing().userId);
+    }
+  }
+}

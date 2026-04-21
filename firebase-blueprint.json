@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "ScenarioReport": {
+      "title": "Scenario Report",
+      "description": "Output report from a simulation scenario execution",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "scenarioId": { "type": "number" },
+        "name": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "data": { "type": "object" },
+        "status": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "scenarioId", "name", "timestamp", "userId", "createdAt"]
+    },
+    "BlockchainBlock": {
+      "title": "Blockchain Block",
+      "description": "A verified block in the V2X ledger",
+      "type": "object",
+      "properties": {
+        "index": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "messages": { "type": "array" },
+        "previousHash": { "type": "string" },
+        "hash": { "type": "string" },
+        "nonce": { "type": "number" },
+        "isAccidentBlock": { "type": "boolean" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["index", "timestamp", "messages", "previousHash", "hash", "nonce", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "reports": {
+      "schema": "ScenarioReport",
+      "description": "History of simulation scenario reports"
+    },
+    "blocks": {
+      "schema": "BlockchainBlock",
+      "description": "Persistence for the blockchain ledger"
+    }
+  }
+}
