@@ -250,7 +250,7 @@ export default function App() {
       const accelY = (Math.random() - 0.5) * 0.5;
       const accelZ = 1 + (Math.random() - 0.5) * 0.2; // Gravity + noise
 
-      const heading = (currentData?.heading || 0 + (Math.random() - 0.5) * 5) % 360;
+      const heading = (currentData?.heading || 0 + (Math.random() - 0.5) * 10) % 360;
       const lat = 21.0285 + (Math.random() - 0.5) * 0.001; // Near Hanoi
       const lng = 105.8542 + (Math.random() - 0.5) * 0.001;
 
@@ -945,7 +945,7 @@ export default function App() {
         <div className="col-span-12 lg:col-span-8 space-y-6">
           
           {/* Dashboard Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <StatCard 
               icon={<Cpu className="w-4 h-4" />} 
               label="MPU6050 Acceleration" 
@@ -954,7 +954,14 @@ export default function App() {
               color="emerald"
             />
             <StatCard 
-              icon={<Navigation className="w-4 h-4" />} 
+              icon={
+                <motion.div
+                  animate={{ rotate: currentData?.heading || 0 }}
+                  transition={{ type: "spring", stiffness: 50, damping: 10 }}
+                >
+                  <Navigation className="w-4 h-4" />
+                </motion.div>
+              } 
               label="Phương chiều (Heading)" 
               value={`${currentData?.heading.toFixed(1) || '0.0'}°`} 
               subValue="Góc hướng GPS M10N"
@@ -973,6 +980,13 @@ export default function App() {
               value={user ? "Connected" : "Disconnected"} 
               subValue={user ? "Firestore Active" : "Click connect in header"}
               color={user ? "emerald" : "amber"}
+            />
+            <StatCard 
+              icon={<ShieldCheck className="w-4 h-4" />} 
+              label="System Resilience" 
+              value="OPTIMAL" 
+              subValue="Network Sync"
+              color="emerald"
             />
           </div>
 
@@ -1424,41 +1438,41 @@ export default function App() {
       {/* System Explanation & Test Scenarios Section */}
       <div className="max-w-7xl mx-auto px-6 mb-12 grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* System Explanation */}
-        <div className="bg-white border border-slate-200 rounded-3xl p-8 relative overflow-hidden shadow-sm">
+        <div className="bg-[#1a1a1e] border border-white/5 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-black/20">
           <div className="absolute top-0 right-0 p-8 opacity-5">
-            <BookOpen className="w-32 h-32 text-emerald-600" />
+            <BookOpen className="w-32 h-32 text-emerald-400" />
           </div>
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-emerald-600" />
+                <BookOpen className="w-5 h-5 text-emerald-400" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">Giải thích Hệ thống</h2>
+              <h2 className="text-xl font-bold text-white tracking-tight">Giải thích Hệ thống</h2>
             </div>
             
             <div className="space-y-6">
               <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-emerald-600 border border-emerald-200">1</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-xs font-bold text-emerald-400 border border-emerald-500/20">1</div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 mb-1 uppercase tracking-wider">Cảm biến & Vi xử lý (Data Acquisition)</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                    Hệ thống tích hợp cảm biến <strong className="text-slate-700">MPU6050</strong> (Gia tốc kế & Con quay hồi chuyển) để giám sát xung lực va chạm và <strong className="text-slate-700">GPS Holybro M10N</strong> để định vị. Vi xử lý trung tâm (ESP32/STM32) đóng vai trò là "bộ não", liên tục phân tích dữ liệu cảm biến với tần suất 100Hz để phát hiện các biến đổi bất thường vượt ngưỡng an toàn (ví dụ: {'>'} 2.5G).
+                  <h3 className="text-sm font-bold text-slate-200 mb-1 uppercase tracking-wider">Cảm biến & Vi xử lý (Data Acquisition)</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                    Hệ thống tích hợp cảm biến <strong className="text-slate-200">MPU6050</strong> (Gia tốc kế & Con quay hồi chuyển) để giám sát xung lực va chạm và <strong className="text-slate-200">GPS Holybro M10N</strong> để định vị. Vi xử lý trung tâm (ESP32/STM32) đóng vai trò là "bộ não", liên tục phân tích dữ liệu cảm biến với tần suất 100Hz để phát hiện các biến đổi bất thường vượt ngưỡng an toàn (ví dụ: {'>'} 2.5G).
                   </p>
                 </div>
               </div>
 
               <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-blue-600 border border-blue-200">2</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-xs font-bold text-blue-400 border border-blue-500/20">2</div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 mb-1 uppercase tracking-wider">Giao tiếp V2X & Bảo mật (Communication Layer)</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                    Sử dụng giao thức <strong className="text-slate-800">DSRC (Dedicated Short Range Communications)</strong> trên băng tần 5.9GHz. Để chống giả mạo, mỗi gói tin được ký số bằng thuật toán <strong className="text-slate-800">ECDSA</strong>. Khi xe A phanh gấp, nó gửi thông điệp cảnh báo đến xe B, C, D trong phạm vi 500m với độ trễ cực thấp, giúp các xe này phản ứng kịp thời trước khi va chạm xảy ra.
+                  <h3 className="text-sm font-bold text-slate-200 mb-1 uppercase tracking-wider">Giao tiếp V2X & Bảo mật (Communication Layer)</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                    Sử dụng giao thức <strong className="text-slate-200">DSRC (Dedicated Short Range Communications)</strong> trên băng tần 5.9GHz. Để chống giả mạo, mỗi gói tin được ký số bằng thuật toán <strong className="text-slate-200">ECDSA</strong>. Khi xe A phanh gấp, nó gửi thông điệp cảnh báo đến xe B, C, D trong phạm vi 500m với độ trễ cực thấp, giúp các xe này phản ứng kịp thời trước khi va chạm xảy ra.
                   </p>
                 </div>
               </div>
 
               <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-violet-400 border border-violet-400/20">3</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-violet-500/10 flex items-center justify-center text-xs font-bold text-violet-400 border border-violet-500/20">3</div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-200 mb-1 uppercase tracking-wider">Blockchain & Đồng thuận RSU (Immutable Ledger)</h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
@@ -1471,34 +1485,34 @@ export default function App() {
         </div>
 
         {/* Test Scenarios */}
-        <div className="bg-white border border-slate-200 rounded-3xl p-8 relative overflow-hidden shadow-sm">
+        <div className="bg-[#1a1a1e] border border-white/5 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-black/20">
           <div className="absolute top-0 right-0 p-8 opacity-5">
-            <Terminal className="w-32 h-32 text-blue-600" />
+            <Terminal className="w-32 h-32 text-blue-400" />
           </div>
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                <Terminal className="w-5 h-5 text-blue-600" />
+                <Terminal className="w-5 h-5 text-blue-400" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">II. CHI TIẾT CÁC KỊCH BẢN VÀ GIẢI PHÁP KỸ THUẬT</h2>
+              <h2 className="text-xl font-bold text-white tracking-tight">II. CHI TIẾT CÁC KỊCH BẢN VÀ GIẢI PHÁP KỸ THUẬT</h2>
             </div>
 
             <div className="space-y-4">
-              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-blue-500/30 transition-colors group relative">
+              <div className="p-4 bg-white/[0.03] border border-white/5 rounded-2xl hover:border-blue-500/30 transition-colors group relative">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Kịch bản 1</span>
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Kịch bản 1</span>
                   <button 
                     onClick={() => runScenario(1)}
-                    className="text-[9px] bg-blue-600 text-white px-2 py-1 rounded border border-blue-600 hover:bg-blue-700 hover:scale-105 transition-all shadow-sm"
+                    className="text-[9px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded border border-blue-600/30 hover:bg-blue-600 hover:text-white transition-all"
                   >
                     Chạy kịch bản
                   </button>
                 </div>
-                <h4 className="text-xs font-bold text-slate-800 mb-1">Kịch bản 1: Lái xe bình thường (Normal Driving)</h4>
-                <p className="text-[10px] text-slate-600 leading-relaxed">
-                  <strong className="text-slate-900">Mô tả:</strong> Phương tiện di chuyển ổn định trên lộ trình, khoảng cách an toàn $d {'>'} 20m$.<br/>
-                  <strong className="text-slate-900">Vấn đề:</strong> Làm sao để hệ thống biết xe vẫn đang hoạt động bình thường và kết nối tốt?<br/>
-                  <strong className="text-slate-900">Giải pháp:</strong> Cơ chế Heartbeat (BSM 10Hz) và lưu trữ "Lightweight Log" lên Blockchain.
+                <h4 className="text-xs font-bold text-slate-200 mb-1">Kịch bản 1: Lái xe bình thường (Normal Driving)</h4>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <strong className="text-slate-300">Mô tả:</strong> Phương tiện di chuyển ổn định trên lộ trình, khoảng cách an toàn $d {'>'} 20m$.<br/>
+                  <strong className="text-slate-300">Vấn đề:</strong> Làm sao để hệ thống biết xe vẫn đang hoạt động bình thường và kết nối tốt?<br/>
+                  <strong className="text-slate-300">Giải pháp:</strong> Cơ chế Heartbeat (BSM 10Hz) và lưu trữ "Lightweight Log" lên Blockchain.
                 </p>
               </div>
 
@@ -1513,10 +1527,10 @@ export default function App() {
                   </button>
                 </div>
                 <h4 className="text-xs font-bold text-slate-200 mb-1">Kịch bản 2: Cảnh báo tiền va chạm (Pre-collision Warning)</h4>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  <strong>Mô tả:</strong> Xe B tiến lại gần xe A trong phạm vi $d {'<'} 2m$ (theo tỉ lệ mô phỏng).<br/>
-                  <strong>Vấn đề:</strong> Tài xế không kịp quan sát hoặc rơi vào điểm mù.<br/>
-                  <strong>Giải pháp:</strong> Thuật toán Euclide tính khoảng cách thời gian thực và Ưu tiên V2X (Radar đỏ, Audio Alert).
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  <strong className="text-slate-300">Mô tả:</strong> Xe B tiến lại gần xe A trong phạm vi $d {'<'} 2m$ (theo tỉ lệ mô phỏng).<br/>
+                  <strong className="text-slate-300">Vấn đề:</strong> Tài xế không kịp quan sát hoặc rơi vào điểm mù.<br/>
+                  <strong className="text-slate-300">Giải pháp:</strong> Thuật toán Euclide tính khoảng cách thời gian thực và Ưu tiên V2X (Radar đỏ, Audio Alert).
                 </p>
               </div>
 
@@ -1531,10 +1545,10 @@ export default function App() {
                   </button>
                 </div>
                 <h4 className="text-xs font-bold text-slate-200 mb-1">Kịch bản 3: Va chạm & Chốt bằng chứng (Collision & Logging)</h4>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  <strong>Mô tả:</strong> Xảy ra va chạm vật lý mạnh ($A {'>'} 2.5g$).<br/>
-                  <strong>Vấn đề:</strong> Các bên tranh cãi về lỗi vi phạm, tọa độ và thời gian sau tai nạn.<br/>
-                  <strong>Giải pháp:</strong> Snapshot tức thời (MPU6050 Interrupt) và Accident Block (Red Block) trên Blockchain.
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  <strong className="text-slate-300">Mô tả:</strong> Xảy ra va chạm vật lý mạnh ($A {'>'} 2.5g$).<br/>
+                  <strong className="text-slate-300">Vấn đề:</strong> Các bên tranh cãi về lỗi vi phạm, tọa độ và thời gian sau tai nạn.<br/>
+                  <strong className="text-slate-300">Giải pháp:</strong> Snapshot tức thời (MPU6050 Interrupt) và Accident Block (Red Block) trên Blockchain.
                 </p>
               </div>
 
@@ -1549,10 +1563,10 @@ export default function App() {
                   </button>
                 </div>
                 <h4 className="text-xs font-bold text-slate-200 mb-1">Kịch bản 4: Tấn công giả mạo (Sybil Attack)</h4>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  <strong>Mô tả:</strong> Một kẻ tấn công dùng ID giả để gửi thông tin tắc đường/tai nạn ảo.<br/>
-                  <strong>Vấn đề:</strong> Làm nhiễu loạn giao thông và hệ thống điều hành.<br/>
-                  <strong>Giải pháp:</strong> Định danh số (Digital ID/Whitelist) và Xác thực PBFT giữa 5 nút RSU.
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  <strong className="text-slate-300">Mô tả:</strong> Một kẻ tấn công dùng ID giả để gửi thông tin tắc đường/tai nạn ảo.<br/>
+                  <strong className="text-slate-300">Vấn đề:</strong> Làm nhiễu loạn giao thông và hệ thống điều hành.<br/>
+                  <strong className="text-slate-300">Giải pháp:</strong> Định danh số (Digital ID/Whitelist) và Xác thực PBFT giữa 5 nút RSU.
                 </p>
               </div>
 
@@ -1567,10 +1581,10 @@ export default function App() {
                   </button>
                 </div>
                 <h4 className="text-xs font-bold text-slate-200 mb-1">Kịch bản 5: Tấn công thay đổi dữ liệu (Data Integrity)</h4>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  <strong>Mô tả:</strong> Kẻ xấu can thiệp gói tin V2X để sửa vị trí xe trên đường truyền.<br/>
-                  <strong>Vấn đề:</strong> Bằng chứng tai nạn bị làm sai lệch tọa độ.<br/>
-                  <strong>Giải pháp:</strong> Hàm Hash SHA-256 và RSU kiểm tra tính toàn vẹn gói tin.
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  <strong className="text-slate-300">Mô tả:</strong> Kẻ xấu can thiệp gói tin V2X để sửa vị trí xe trên đường truyền.<br/>
+                  <strong className="text-slate-300">Vấn đề:</strong> Bằng chứng tai nạn bị làm sai lệch tọa độ.<br/>
+                  <strong className="text-slate-300">Giải pháp:</strong> Hàm Hash SHA-256 và RSU kiểm tra tính toàn vẹn gói tin.
                 </p>
               </div>
             </div>
@@ -1580,7 +1594,7 @@ export default function App() {
 
       {/* Security Layer Explanation */}
       <div className="max-w-7xl mx-auto px-6 mb-12">
-        <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-3xl p-8 relative overflow-hidden shadow-sm">
+        <div className="bg-[#1a1a1e] border border-white/5 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-black/20">
           <div className="absolute top-0 right-0 p-8 opacity-10">
             <Lock className="w-48 h-48 text-blue-400" />
           </div>
@@ -1591,47 +1605,47 @@ export default function App() {
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-white tracking-tight">Cơ chế Bảo mật & Chống Giả mạo</h2>
-                <p className="text-sm text-slate-500">Đảm bảo an toàn dữ liệu trong mạng lưới V2X-Blockchain</p>
+                <p className="text-sm text-slate-500 font-bold">Đảm bảo an toàn dữ liệu trong mạng lưới V2X-Blockchain</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-2 text-blue-600 mb-3">
+              <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-sm hover:border-blue-500/30 transition-all">
+                <div className="flex items-center gap-2 text-blue-400 mb-3">
                   <Lock className="w-4 h-4" />
                   <h4 className="text-xs font-bold uppercase tracking-wider">Chữ ký số ECDSA</h4>
                 </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                   Mỗi phương tiện sở hữu một cặp khóa (Private/Public Key). Mọi thông điệp gửi đi đều được ký bằng khóa riêng, đảm bảo tính xác thực và không thể chối bỏ.
                 </p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-2 text-emerald-600 mb-3">
+              <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-sm hover:border-emerald-500/30 transition-all">
+                <div className="flex items-center gap-2 text-emerald-400 mb-3">
                   <CheckCircle2 className="w-4 h-4" />
                   <h4 className="text-xs font-bold uppercase tracking-wider">Xác thực RSU</h4>
                 </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                   Các trạm RSU đóng vai trò là các nút kiểm chứng. Chúng kiểm tra chữ ký số của mọi gói tin V2X trước khi cho phép dữ liệu tham gia vào quá trình đồng thuận.
                 </p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-2 text-orange-600 mb-3">
+              <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-sm hover:border-orange-500/30 transition-all">
+                <div className="flex items-center gap-2 text-orange-400 mb-3">
                   <Shield className="w-4 h-4" />
                   <h4 className="text-xs font-bold uppercase tracking-wider">Chống Replay Attack</h4>
                 </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                   Sử dụng Timestamp và Nonce trong mỗi thông điệp để ngăn chặn kẻ tấn công ghi lại các gói tin hợp lệ cũ và gửi lại nhằm gây nhiễu hệ thống.
                 </p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-2 text-red-600 mb-3">
+              <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-sm hover:border-red-500/30 transition-all">
+                <div className="flex items-center gap-2 text-red-400 mb-3">
                   <Database className="w-4 h-4" />
                   <h4 className="text-xs font-bold uppercase tracking-wider">Tính Bất biến</h4>
                 </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                   Dữ liệu sau khi được đồng thuận sẽ được băm (Hash) và liên kết thành chuỗi. Việc sửa đổi dữ liệu quá khứ là bất khả thi về mặt toán học.
                 </p>
               </div>
@@ -1642,19 +1656,19 @@ export default function App() {
 
       {/* Traffic Flow Statistics Section */}
       <section className="max-w-7xl mx-auto px-6 mb-12">
-        <div className="bg-white border border-slate-200 rounded-3xl p-8 relative overflow-hidden shadow-sm">
+        <div className="bg-[#1a1a1e] border border-white/5 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-black/20">
           <div className="absolute top-0 right-0 p-8 opacity-5">
-            <Activity className="w-32 h-32 text-blue-600" />
+            <Activity className="w-32 h-32 text-blue-400" />
           </div>
           
           <div className="relative z-10">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                  <BarChart className="w-5 h-5 text-blue-600" />
+                  <BarChart className="w-5 h-5 text-blue-400" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">Thống kê Lưu lượng Phương tiện</h2>
+                  <h2 className="text-xl font-bold text-white tracking-tight">Thống kê Lưu lượng Phương tiện</h2>
                   <p className="text-xs text-slate-500 font-bold">Giám sát các nút giao thông trọng điểm theo thời gian thực</p>
                 </div>
               </div>
@@ -1666,7 +1680,7 @@ export default function App() {
                     {intersectionData.reduce((acc, curr) => acc + curr.flow, 0).toLocaleString()}
                   </p>
                 </div>
-                <div className="w-px h-8 bg-slate-200" />
+                <div className="w-px h-8 bg-white/10" />
                 <div className="text-center">
                   <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Trạng thái hệ thống</p>
                   <div className="flex items-center gap-1.5 justify-center">
@@ -1678,23 +1692,23 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 h-[300px] bg-slate-50 rounded-2xl border border-slate-100 p-4 shadow-inner">
+              <div className="lg:col-span-2 h-[300px] bg-black/20 rounded-2xl border border-white/5 p-4 shadow-inner">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={intersectionData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d2d30" vertical={false} />
                     <XAxis 
                       dataKey="name" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fill: '#64748b', fontSize: 10 }}
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
                     />
                     <YAxis 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fill: '#64748b', fontSize: 10 }}
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
                     />
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                      contentStyle={{ backgroundColor: '#1a1a1e', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px' }}
                       itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
                       labelStyle={{ color: '#94a3b8', fontSize: '10px' }}
                     />
@@ -1710,7 +1724,7 @@ export default function App() {
               <div className="space-y-3">
                 <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Danh sách Chi tiết Nút giao</h3>
                 {intersectionData.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
+                  <div key={item.name} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors shadow-sm">
                     <div className="flex items-center gap-3">
                       <div className={cn(
                         "w-2 h-2 rounded-full",
@@ -1782,7 +1796,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-4 mb-5">
                     {/* Traffic Light Visual */}
                     <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col items-center justify-center relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-12 h-12 bg-white rounded-full -translate-y-1/2 translate-x-1/2 blur-xl opacity-5" />
+                      <div className="absolute top-0 right-0 w-12 h-12 bg-blue-500 rounded-full -translate-y-1/2 translate-x-1/2 blur-xl opacity-5" />
                       <div className="space-y-1.5 mb-2">
                         <div className={cn("w-3 h-3 rounded-full transition-all duration-300", item.light === 'red' ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)] scale-110" : "bg-red-900/30")} />
                         <div className={cn("w-3 h-3 rounded-full transition-all duration-300", item.light === 'yellow' ? "bg-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)] scale-110" : "bg-amber-900/30")} />
