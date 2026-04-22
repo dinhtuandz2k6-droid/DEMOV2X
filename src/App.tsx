@@ -28,6 +28,7 @@ import {
   Settings2,
   LogIn,
   LogOut,
+  Download,
   User as UserIcon
 } from 'lucide-react';
 import { 
@@ -51,6 +52,7 @@ import { SensorData, V2XMessage, Block } from './types';
 import { auth, db, loginWithGoogle, logout } from './lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 
 // Constants for simulation
 const COLLISION_THRESHOLD = 2.5; // G-force
@@ -95,10 +97,13 @@ export default function App() {
 
   const [isSimulatingCollision, setIsSimulatingCollision] = useState(false);
   const [eventStatus, setEventStatus] = useState<'NORMAL' | 'WARNING' | 'ACCIDENT'>('NORMAL');
+  const [isSendingManualData, setIsSendingManualData] = useState(false);
+  const [isExportingDB, setIsExportingDB] = useState(false);
 
   // Firebase User State
   const [user, setUser] = useState<User | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Sync historical data from Firestore
   useEffect(() => {
@@ -183,6 +188,128 @@ export default function App() {
     }
   };
 
+  const handleExportExcel = () => {
+    if (scenarioHistory.length === 0) {
+      alert("Không có dữ liệu để xuất!");
+      return;
+    }
+
+    // Flatten data for Excel
+    const dataToExport = scenarioHistory.map(report => ({
+      'ID': report.id,
+      'Kịch bản': report.scenarioId,
+      'Tên kịch bản': report.name,
+      'Thời gian': report.timestamp,
+      'Gia tốc (Accel)': report.data.accel || '',
+      'Phương chiều (Heading)': report.data.heading || '',
+      'V2X Status': report.data.v2x || '',
+      'Khoảng cách (Distance)': report.data.distance || '',
+      'Thuật toán (Algorithm)': report.data.algorithm || '',
+      'Cảnh báo (Alert)': report.data.alert || '',
+      'Trạng thái': report.status
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "ScenarioHistory");
+    
+    // Generate Buffer
+    XLSX.writeFile(workbook, `V2X_Collision_Report_${new Date().getTime()}.xlsx`);
+  };
+
+  const sendManualSimulationData = async () => {
+    if (!user) {
+      alert("Bạn cần nhấn 'Kết nối Database' ở trên cùng trước khi gửi dữ liệu!");
+      return;
+    }
+    
+    setIsSendingManualData(true);
+    try {
+      const manualSnapshot = {
+          id: Date.now() + Math.random(),
+          scenarioId: 0,
+          name: "Dữ liệu thủ công (NCKH Control)",
+          timestamp: new Date().toLocaleTimeString(),
+          data: {
+            accel: `${currentData?.accelX.toFixed(2) || '0.00'}G`,
+            heading: `${currentData?.heading.toFixed(1) || '0.0'}°`,
+            lat: currentData?.lat.toFixed(4) || '0.0000',
+            lng: currentData?.lng.toFixed(4) || '0.0000',
+            v2x: "Manual Trigger",
+            hash: "sha256_" + Math.random().toString(36).substring(7),
+          },
+          status: eventStatus
+      };
+      
+      // Update local history
+      setScenarioHistory(prev => [manualSnapshot, ...prev]);
+      
+      // Push to Firestore
+      await addDoc(collection(db, 'reports'), {
+        ...manualSnapshot,
+        userId: user.uid,
+        createdAt: new Date().toISOString()
+      });
+      
+      alert("Đã gửi dữ liệu mô phỏng thành công lên Firestore!");
+    } catch (e) {
+      console.error("Manual send error:", e);
+      alert("Lỗi khi gửi dữ liệu!");
+    } finally {
+      setIsSendingManualData(false);
+    }
+  };
+
+  const exportFromFirestore = async () => {
+    if (!user) {
+      alert("Cần kết nối Database để lấy dữ liệu lịch sử!");
+      return;
+    }
+
+    setIsExportingDB(true);
+    try {
+      const q = query(
+        collection(db, 'reports'), 
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc")
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const rows: any[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const item = doc.data();
+        rows.push({
+          'Firebase_ID': doc.id,
+          'Kịch bản': item.name,
+          'Thời gian': item.timestamp,
+          'Gia tốc (G)': item.data.accel,
+          'Phương hướng (°)': item.data.heading,
+          'Tọa độ': `${item.data.lat}, ${item.data.lng}`,
+          'Dữ liệu V2X': item.data.v2x,
+          'Mã Hash': item.data.hash || 'N/A',
+          'Trạng thái': item.status,
+          'Ngày tạo (UTC)': item.createdAt
+        });
+      });
+
+      if (rows.length === 0) {
+        alert("Không tìm thấy dữ liệu nào trên Database của bạn!");
+        return;
+      }
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "NCKH_Database_Export");
+      XLSX.writeFile(workbook, `V2X_NCKH_DB_Export_${new Date().getTime()}.xlsx`);
+    } catch (e) {
+      console.error("DB Export error:", e);
+      alert("Lỗi khi truy vấn dữ liệu từ CSDL!");
+    } finally {
+      setIsExportingDB(false);
+    }
+  };
+
   // Traffic Flow Data for Intersections
   const [intersectionData, setIntersectionData] = useState([
     { name: 'Nút giao A', flow: 450, status: 'Ổn định', capacity: 1000, light: 'green', timer: 45, cameras: 4 },
@@ -225,15 +352,19 @@ export default function App() {
 
   // Initialize Blockchain with Genesis Block
   useEffect(() => {
-    const genesisBlock: Block = {
-      index: 0,
-      timestamp: Date.now(),
-      messages: [],
-      previousHash: "0",
-      hash: "genesis_hash_" + Math.random().toString(36).substring(7),
-      nonce: 0
-    };
-    setBlockchain([genesisBlock]);
+    // Only initialize if blockchain is empty to avoid overwriting sync data
+    setBlockchain(prev => {
+      if (prev.length > 0) return prev;
+      const genesisBlock: Block = {
+        index: 0,
+        timestamp: Date.now(),
+        messages: [],
+        previousHash: "0",
+        hash: "genesis_hash_" + Math.random().toString(36).substring(2, 15),
+        nonce: 0
+      };
+      return [genesisBlock];
+    });
   }, []);
 
   // Simulation Loop
@@ -407,7 +538,7 @@ export default function App() {
         index: blockchain.length,
         timestamp: Date.now(),
         messages: [{
-          id: "ACCIDENT_EVENT_" + Math.random().toString(36).substring(7),
+          id: "ACCIDENT_EVENT_" + Math.random().toString(36).substring(2, 15),
           senderId: "VEHICLE_ID: V_01",
           timestamp: Date.now(),
           type: 'COLLISION_ALERT',
@@ -416,7 +547,7 @@ export default function App() {
           hash: "ACCIDENT_VERIFIED_BY_RSU"
         }],
         previousHash: lastBlock?.hash || "0",
-        hash: "ACCIDENT_BLOCK_" + Math.random().toString(36).substring(7),
+        hash: "ACCIDENT_BLOCK_" + Math.random().toString(36).substring(2, 15),
         nonce: 777
       };
       
@@ -446,7 +577,7 @@ export default function App() {
         timestamp: Date.now(),
         messages: [...pendingMessages],
         previousHash: lastBlock?.hash || "0",
-        hash: "block_hash_" + Math.random().toString(36).substring(7),
+        hash: "block_hash_" + Math.random().toString(36).substring(2, 15),
         nonce: Math.floor(Math.random() * 1000)
       };
       
@@ -493,7 +624,7 @@ export default function App() {
 
       setTimeout(() => {
         const snapshot = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           scenarioId: 1,
           name: "Kịch bản 1: Lái xe bình thường (Normal Driving)",
           timestamp: new Date().toLocaleTimeString(),
@@ -544,7 +675,7 @@ export default function App() {
 
       setTimeout(() => {
         const snapshot = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           scenarioId: 2,
           name: "Kịch bản 2: Cảnh báo tiền va chạm (Pre-collision Warning)",
           timestamp: new Date().toLocaleTimeString(),
@@ -595,7 +726,7 @@ export default function App() {
 
       setTimeout(() => {
         const snapshot = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           scenarioId: 3,
           name: "Kịch bản 3: Va chạm & Chốt bằng chứng (Collision & Logging)",
           timestamp: new Date().toLocaleTimeString(),
@@ -643,7 +774,7 @@ export default function App() {
 
       setTimeout(() => {
         const snapshot = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           scenarioId: 4,
           name: "Kịch bản 4: Tấn công giả mạo (Sybil Attack)",
           timestamp: new Date().toLocaleTimeString(),
@@ -692,7 +823,7 @@ export default function App() {
 
       setTimeout(() => {
         const snapshot = {
-          id: Date.now(),
+          id: Date.now() + Math.random(),
           scenarioId: 5,
           name: "Kịch bản 5: Tấn công thay đổi dữ liệu (Data Integrity)",
           timestamp: new Date().toLocaleTimeString(),
@@ -768,11 +899,33 @@ export default function App() {
               </div>
             ) : (
               <button 
-                onClick={loginWithGoogle}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                onClick={async () => {
+                  if (isLoggingIn) return;
+                  setIsLoggingIn(true);
+                  try {
+                    await loginWithGoogle();
+                  } catch (err: any) {
+                    if (err.code !== 'auth/cancelled-popup-request') {
+                      console.error("Login failed:", err);
+                    }
+                  } finally {
+                    setIsLoggingIn(false);
+                  }
+                }}
+                disabled={isLoggingIn}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95",
+                  isLoggingIn 
+                    ? "bg-slate-700 text-slate-400 cursor-wait" 
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20"
+                )}
               >
-                <LogIn className="w-4 h-4" />
-                Kết nối Database
+                {isLoggingIn ? (
+                  <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <LogIn className="w-4 h-4" />
+                )}
+                {isLoggingIn ? "Đang kết nối..." : "Kết nối Database"}
               </button>
             )}
 
@@ -945,7 +1098,7 @@ export default function App() {
         <div className="col-span-12 lg:col-span-8 space-y-6">
           
           {/* Dashboard Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatCard 
               icon={<Cpu className="w-4 h-4" />} 
               label="MPU6050 Acceleration" 
@@ -988,6 +1141,87 @@ export default function App() {
               subValue="Network Sync"
               color="emerald"
             />
+            <StatCard 
+              icon={<Radio className="w-4 h-4" />} 
+              label="V2X STATUS" 
+              value="DSRC Active" 
+              subValue="5.9 GHz Band"
+              color="amber"
+            />
+          </div>
+
+          {/* NCKH Control Toolbox */}
+          <div className="bg-[#1a1a1e] border border-white/5 rounded-2xl p-6 shadow-xl shadow-black/20 overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12 group-hover:rotate-0 transition-transform">
+              <Layers className="w-24 h-24 text-blue-500" />
+            </div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    NCKH Control Toolbox
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Công cụ nén & đẩy dữ liệu mô phỏng trực tiếp</p>
+                </div>
+                <div className="flex items-center gap-2">
+                   <div className="px-2 py-0.5 rounded border border-blue-500/20 bg-blue-500/5 text-blue-400 text-[8px] font-bold">MODE: MANUAL_DATA</div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-4">
+                {/* Manual Send Button */}
+                <button 
+                  onClick={sendManualSimulationData}
+                  disabled={isSendingManualData || !user}
+                  className={cn(
+                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95",
+                    user 
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black cursor-pointer shadow-lg shadow-emerald-500/10" 
+                      : "bg-white/5 border-white/5 text-slate-600 cursor-not-allowed"
+                  )}
+                >
+                  {isSendingManualData ? (
+                    <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Share2 className="w-5 h-5" />
+                  )}
+                  <div className="text-left">
+                    <p className="text-xs uppercase tracking-wider leading-none mb-1">Gửi dữ liệu mô phỏng</p>
+                    <p className="text-[9px] font-medium opacity-60">Push to reports collection</p>
+                  </div>
+                </button>
+
+                {/* DB Export Button */}
+                <button 
+                  onClick={exportFromFirestore}
+                  disabled={isExportingDB || !user}
+                  className={cn(
+                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95",
+                    user 
+                      ? "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-50 hover:text-black cursor-pointer shadow-lg shadow-blue-500/10" 
+                      : "bg-white/5 border-white/5 text-slate-600 cursor-not-allowed"
+                  )}
+                >
+                  {isExportingDB ? (
+                    <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-5 h-5" />
+                  )}
+                  <div className="text-left">
+                    <p className="text-xs uppercase tracking-wider leading-none mb-1">Xuất báo cáo Excel</p>
+                    <p className="text-[9px] font-medium opacity-60">Fetch from Firestore Database</p>
+                  </div>
+                </button>
+              </div>
+              
+              {!user && (
+                <div className="mt-4 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center gap-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-[10px] text-amber-200/70 font-medium">Bạn cần nhấn <strong className="text-amber-400">"Kết nối Database"</strong> ở trên cùng để sử dụng các tính năng đẩy dữ liệu NCKH này.</p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Radar & Charts Section */}
@@ -1239,10 +1473,10 @@ export default function App() {
                     <p className="text-sm text-red-100">Phát hiện gia tốc đột ngột {currentData?.accelX.toFixed(2)}G</p>
                   </div>
                 </div>
-                <div className="bg-slate-100 rounded-lg p-3 text-xs font-mono">
-                  <p>STATUS: ALERT_SENT_V2X</p>
-                  <p>PROTOCOL: DSRC_WAVE</p>
-                  <p>BLOCKCHAIN: RECORDING...</p>
+                <div className="bg-[#0a0a0c] rounded-lg p-3 text-xs font-mono border border-white/5 shadow-inner">
+                  <p className="text-red-400 font-bold tracking-tight">STATUS: ALERT_SENT_V2X</p>
+                  <p className="text-slate-400">PROTOCOL: DSRC_WAVE</p>
+                  <p className="text-slate-400">BLOCKCHAIN: <span className="animate-pulse">RECORDING...</span></p>
                 </div>
               </motion.div>
             )}
@@ -1335,10 +1569,10 @@ export default function App() {
               {/* Timeline line */}
               <div className="absolute left-[15px] top-4 bottom-4 w-px bg-white/5"></div>
 
-              {blockchain.slice().reverse().map((block) => {
+              {blockchain.slice().reverse().map((block, idx) => {
                 const isAccident = block.hash.toLowerCase().includes('accident');
                 return (
-                  <div key={block.hash} className="relative pl-10 group">
+                  <div key={`${block.hash}-${block.index}-${idx}`} className="relative pl-10 group">
                     <div className={cn(
                       "absolute left-0 top-1 w-8 h-8 rounded-lg border flex items-center justify-center z-10 shadow-xl transition-transform group-hover:scale-110",
                       isAccident ? "bg-red-500/20 border-red-500/40" : "bg-white/5 border-white/10"
@@ -1945,19 +2179,30 @@ export default function App() {
                 <p className="text-xs text-slate-500 font-bold">Dữ liệu được "chụp" lại sau mỗi lần chạy kịch bản</p>
               </div>
             </div>
-            <button 
-              onClick={() => setScenarioHistory([])}
-              className="text-[10px] text-slate-500 hover:text-red-500 transition-colors uppercase font-bold tracking-widest"
-            >
-              Xóa lịch sử
-            </button>
+            <div className="flex items-center gap-4">
+              {scenarioHistory.length > 0 && (
+                <button 
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-2 text-[10px] bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-all font-bold uppercase tracking-widest"
+                >
+                  <Download className="w-3 h-3" />
+                  Xuất Excel
+                </button>
+              )}
+              <button 
+                onClick={() => setScenarioHistory([])}
+                className="text-[10px] text-slate-500 hover:text-red-500 transition-colors uppercase font-bold tracking-widest"
+              >
+                Xóa lịch sử
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <AnimatePresence mode="popLayout">
-              {scenarioHistory.map((report) => (
+              {scenarioHistory.map((report, idx) => (
                 <motion.div 
-                  key={report.id}
+                  key={`${report.id}-${idx}`}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
