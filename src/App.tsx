@@ -29,6 +29,9 @@ import {
   LogIn,
   LogOut,
   Download,
+  Cloud,
+  Server,
+  FileJson,
   User as UserIcon
 } from 'lucide-react';
 import { 
@@ -49,9 +52,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { SensorData, V2XMessage, Block } from './types';
-import { auth, db, loginWithGoogle, logout } from './lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { serverApi, SimulationReport } from './lib/api';
 import * as XLSX from 'xlsx';
 
 // Constants for simulation
@@ -100,91 +101,67 @@ export default function App() {
   const [isSendingManualData, setIsSendingManualData] = useState(false);
   const [isExportingDB, setIsExportingDB] = useState(false);
 
-  // Firebase User State
-  const [user, setUser] = useState<User | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  // Local Auth State
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => sessionStorage.getItem('is_admin_v2x') === 'true');
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [accessCodeInput, setAccessCodeInput] = useState<string>('');
+  const [loginError, setLoginError] = useState<string>('');
 
-  // Sync historical data from Firestore
+  // Synchronize data from Server periodically (Real-time Simulation)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        syncData(currentUser.uid);
-      } else {
-        setScenarioHistory([]);
-        setBlockchain([]);
+    const fetchData = async () => {
+      try {
+        const reports = await serverApi.getReports();
+        setScenarioHistory(reports);
+
+        const blocks = await serverApi.getBlocks();
+        if (blocks.length > 0) {
+          setBlockchain(blocks as Block[]);
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
       }
-    });
-    return () => unsubscribe();
+    };
+
+    fetchData(); // Initial load
+    const interval = setInterval(fetchData, 5000); // Poll every 5s for "nhảy số liên tục"
+    
+    return () => clearInterval(interval);
   }, []);
 
-  const syncData = async (uid: string) => {
-    setIsSyncing(true);
-    try {
-      // Fetch reports
-      const reportsQuery = query(
-        collection(db, 'reports'),
-        where('userId', '==', uid),
-        orderBy('id', 'desc'),
-        limit(20)
-      );
-      const reportsSnapshot = await getDocs(reportsQuery);
-      const fetchedReports = reportsSnapshot.docs.map(doc => doc.data());
-      setScenarioHistory(fetchedReports);
-
-      // Fetch blocks
-      const blocksQuery = query(
-        collection(db, 'blocks'),
-        where('userId', '==', uid),
-        orderBy('index', 'asc')
-      );
-      const blocksSnapshot = await getDocs(blocksQuery);
-      const fetchedBlocks = blocksSnapshot.docs.map(doc => doc.data());
-      if (fetchedBlocks.length > 0) {
-        setBlockchain(fetchedBlocks as Block[]);
-      } else {
-        // Only set genesis if no blocks found
-        const genesisBlock: Block = {
-          index: 0,
-          timestamp: Date.now(),
-          messages: [],
-          previousHash: "0",
-          hash: "7e5e7e..._GENESIS",
-          nonce: 0
-        };
-        setBlockchain([genesisBlock]);
-      }
-    } catch (error) {
-      console.error("Error syncing data:", error);
-    } finally {
-      setIsSyncing(false);
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const ADMIN_CODE = "NCKH_V2X_2026"; // In real app, this matches server env
+    if (accessCodeInput === ADMIN_CODE) {
+      setIsAdmin(true);
+      sessionStorage.setItem('is_admin_v2x', 'true');
+      sessionStorage.setItem('admin_access_code', accessCodeInput);
+      setShowLoginModal(false);
+      setLoginError('');
+    } else {
+      setLoginError('Mã truy cập không chính xác. Vui lòng thử lại.');
     }
   };
 
+  const handleLogout = () => {
+    setIsAdmin(false);
+    sessionStorage.removeItem('is_admin_v2x');
+    sessionStorage.removeItem('admin_access_code');
+  };
+
   const persistReport = async (report: any) => {
-    if (!user) return;
     try {
-      await addDoc(collection(db, 'reports'), {
-        ...report,
-        userId: user.uid,
-        createdAt: new Date().toISOString()
-      });
+      await serverApi.saveReport(report);
     } catch (e) {
-      console.error("Error persisting report:", e);
+      console.error("Error persisting report to server:", e);
     }
   };
 
   const persistBlock = async (block: Block) => {
-    if (!user) return;
     try {
-      await addDoc(collection(db, 'blocks'), {
-        ...block,
-        userId: user.uid,
-        createdAt: new Date().toISOString()
-      });
+      await serverApi.saveBlock(block);
     } catch (e) {
-      console.error("Error persisting block:", e);
+      console.error("Error persisting block to server:", e);
     }
   };
 
@@ -218,69 +195,76 @@ export default function App() {
   };
 
   const sendManualSimulationData = async () => {
-    if (!user) {
-      alert("Bạn cần nhấn 'Kết nối Database' ở trên cùng trước khi gửi dữ liệu!");
+    if (!isAdmin) {
+      setShowLoginModal(true);
       return;
     }
     
     setIsSendingManualData(true);
     try {
+      const timestamp = new Date().toLocaleTimeString();
+      const reportId = `SRV_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Lấy dữ liệu thực tế đang hiển thị trên biểu đồ/widget
+      const accelerometerValue = currentData ? `${currentData.accelX.toFixed(2)}G` : "0.00G";
+
       const manualSnapshot = {
-          id: Date.now() + Math.random(),
+          id: reportId,
           scenarioId: 0,
-          name: "Dữ liệu thủ công (NCKH Control)",
-          timestamp: new Date().toLocaleTimeString(),
+          name: eventStatus === 'NORMAL' ? "Dữ liệu vận hành" : "Cảnh báo va chạm V2X",
+          timestamp: timestamp,
           data: {
-            accel: `${currentData?.accelX.toFixed(2) || '0.00'}G`,
+            accel: accelerometerValue,
             heading: `${currentData?.heading.toFixed(1) || '0.0'}°`,
-            lat: currentData?.lat.toFixed(4) || '0.0000',
-            lng: currentData?.lng.toFixed(4) || '0.0000',
-            v2x: "Manual Trigger",
-            hash: "sha256_" + Math.random().toString(36).substring(7),
+            lat: currentData?.lat.toFixed(4) || '21.0285',
+            lng: currentData?.lng.toFixed(4) || '105.8542',
+            v2x: eventStatus === 'NORMAL' ? "BACON_HEALTH_CHECK" : "DENM_ALERT_BROADCAST",
+            hash: "PENDING_SERVER_HASH"
           },
-          status: eventStatus
+          status: eventStatus,
+          createdAt: new Date().toISOString()
       };
       
-      // Update local history
-      setScenarioHistory(prev => [manualSnapshot, ...prev]);
+      // 1. Gửi báo cáo chi tiết lên Server
+      const reportSuccess = await serverApi.saveReport(manualSnapshot);
       
-      // Push to Firestore
-      await addDoc(collection(db, 'reports'), {
-        ...manualSnapshot,
-        userId: user.uid,
-        createdAt: new Date().toISOString()
-      });
-      
-      alert("Đã gửi dữ liệu mô phỏng thành công lên Firestore!");
+      if (reportSuccess) {
+        // 2. Đào Block mới (Server-side SHA-256 Mining)
+        const blockData = {
+          messages: [{
+            id: `TX_${Date.now()}`,
+            type: eventStatus,
+            reportId: reportId,
+            content: eventStatus === 'NORMAL' ? "Đã ghi nhận dữ liệu định kỳ" : `CẢNH BÁO: Phát hiện gia tốc ${accelerometerValue}`,
+            data: manualSnapshot.data
+          }]
+        };
+        
+        const blockResult = await serverApi.saveBlock(blockData);
+        
+        if (blockResult) {
+          alert(`Đã lưu thành công! \nTrạng thái: ${eventStatus} \nGia tốc: ${accelerometerValue} \nBlock đã được đào với mã SHA-256 trên Server.`);
+        }
+      } else {
+        throw new Error("Server report save failed");
+      }
     } catch (e) {
       console.error("Manual send error:", e);
-      alert("Lỗi khi gửi dữ liệu!");
+      alert("Lỗi khi kết nối với Server nội bộ!");
     } finally {
       setIsSendingManualData(false);
     }
   };
 
-  const exportFromFirestore = async () => {
-    if (!user) {
-      alert("Cần kết nối Database để lấy dữ liệu lịch sử!");
-      return;
-    }
-
+  const exportFromInternalDB = async () => {
     setIsExportingDB(true);
     try {
-      const q = query(
-        collection(db, 'reports'), 
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc")
-      );
-      
-      const querySnapshot = await getDocs(q);
+      const reports = await serverApi.getReports();
       const rows: any[] = [];
       
-      querySnapshot.forEach((doc) => {
-        const item = doc.data();
+      reports.forEach((item: any) => {
         rows.push({
-          'Firebase_ID': doc.id,
+          'Internal_ID': item.id,
           'Kịch bản': item.name,
           'Thời gian': item.timestamp,
           'Gia tốc (G)': item.data.accel,
@@ -289,22 +273,22 @@ export default function App() {
           'Dữ liệu V2X': item.data.v2x,
           'Mã Hash': item.data.hash || 'N/A',
           'Trạng thái': item.status,
-          'Ngày tạo (UTC)': item.createdAt
+          'Ngày tạo (Local)': item.createdAt
         });
       });
 
       if (rows.length === 0) {
-        alert("Không tìm thấy dữ liệu nào trên Database của bạn!");
+        alert("Không tìm thấy dữ liệu nào trên Database nội bộ!");
         return;
       }
 
       const worksheet = XLSX.utils.json_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "NCKH_Database_Export");
-      XLSX.writeFile(workbook, `V2X_NCKH_DB_Export_${new Date().getTime()}.xlsx`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "NCKH_Internal_Export");
+      XLSX.writeFile(workbook, `V2X_NCKH_Internal_Export_${new Date().getTime()}.xlsx`);
     } catch (e) {
       console.error("DB Export error:", e);
-      alert("Lỗi khi truy vấn dữ liệu từ CSDL!");
+      alert("Lỗi khi truy vấn dữ liệu từ máy chủ nội bộ!");
     } finally {
       setIsExportingDB(false);
     }
@@ -875,22 +859,22 @@ export default function App() {
           
           <div className="flex items-center gap-4">
             {/* Sync Status */}
-            {user && isSyncing && (
+            {isSimulating && (
               <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Syncing...</span>
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Flow Active</span>
               </div>
             )}
 
-            {/* User Auth */}
-            {user ? (
+            {/* Admin Access Status */}
+            {isAdmin ? (
               <div className="flex items-center gap-3 pl-4 border-l border-white/10">
                 <div className="flex flex-col items-end">
-                  <span className="text-[10px] font-bold text-white leading-none">{user.displayName || 'User'}</span>
-                  <span className="text-[8px] text-slate-400 uppercase font-bold tracking-widest">Connected</span>
+                  <span className="text-[10px] font-bold text-white leading-none">Admin Dashboard</span>
+                  <span className="text-[8px] text-emerald-400 font-bold uppercase tracking-widest">Quyền hạn: Toàn phần</span>
                 </div>
                 <button 
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 text-slate-400 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20 transition-all shadow-sm"
                   title="Đăng xuất"
                 >
@@ -899,33 +883,11 @@ export default function App() {
               </div>
             ) : (
               <button 
-                onClick={async () => {
-                  if (isLoggingIn) return;
-                  setIsLoggingIn(true);
-                  try {
-                    await loginWithGoogle();
-                  } catch (err: any) {
-                    if (err.code !== 'auth/cancelled-popup-request') {
-                      console.error("Login failed:", err);
-                    }
-                  } finally {
-                    setIsLoggingIn(false);
-                  }
-                }}
-                disabled={isLoggingIn}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95",
-                  isLoggingIn 
-                    ? "bg-slate-700 text-slate-400 cursor-wait" 
-                    : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20"
-                )}
+                onClick={() => setShowLoginModal(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20"
               >
-                {isLoggingIn ? (
-                  <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <LogIn className="w-4 h-4" />
-                )}
-                {isLoggingIn ? "Đang kết nối..." : "Kết nối Database"}
+                <Lock className="w-4 h-4" />
+                Đăng nhập Admin
               </button>
             )}
 
@@ -1117,22 +1079,22 @@ export default function App() {
               } 
               label="Phương chiều (Heading)" 
               value={`${currentData?.heading.toFixed(1) || '0.0'}°`} 
-              subValue="Góc hướng GPS M10N"
+              subValue="Holybro M10N Module"
               color="blue"
             />
             <StatCard 
               icon={<MapPin className="w-4 h-4" />} 
               label="Coordinates" 
               value={`${currentData?.lat.toFixed(4) || '0.0'}, ${currentData?.lng.toFixed(4) || '0.0'}`} 
-              subValue="GPS Location"
+              subValue="Holybro Ublox M10N"
               color="violet"
             />
             <StatCard 
-              icon={<Database className={cn("w-4 h-4", user ? "text-emerald-400" : "text-amber-400")} />} 
-              label="Cloud Database" 
-              value={user ? "Connected" : "Disconnected"} 
-              subValue={user ? "Firestore Active" : "Click connect in header"}
-              color={user ? "emerald" : "amber"}
+              icon={<Database className="w-4 h-4 text-emerald-400" />} 
+              label="Internal Database" 
+              value="Connected" 
+              subValue="Secure Local Storage"
+              color="emerald"
             />
             <StatCard 
               icon={<ShieldCheck className="w-4 h-4" />} 
@@ -1173,34 +1135,34 @@ export default function App() {
                 {/* Manual Send Button */}
                 <button 
                   onClick={sendManualSimulationData}
-                  disabled={isSendingManualData || !user}
+                  disabled={isSendingManualData || !isAdmin}
                   className={cn(
-                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95",
-                    user 
-                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black cursor-pointer shadow-lg shadow-emerald-500/10" 
-                      : "bg-white/5 border-white/5 text-slate-600 cursor-not-allowed"
+                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95 shadow-lg",
+                    isAdmin 
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black shadow-emerald-500/10"
+                      : "border-white/5 bg-white/5 text-slate-600 grayscale cursor-not-allowed"
                   )}
                 >
                   {isSendingManualData ? (
                     <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <Share2 className="w-5 h-5" />
+                    <Cloud className="w-5 h-5" />
                   )}
                   <div className="text-left">
                     <p className="text-xs uppercase tracking-wider leading-none mb-1">Gửi dữ liệu mô phỏng</p>
-                    <p className="text-[9px] font-medium opacity-60">Push to reports collection</p>
+                    <p className="text-[9px] font-medium opacity-60">Push to Secure Local Database</p>
                   </div>
                 </button>
 
                 {/* DB Export Button */}
                 <button 
-                  onClick={exportFromFirestore}
-                  disabled={isExportingDB || !user}
+                  onClick={exportFromInternalDB}
+                  disabled={isExportingDB || !isAdmin}
                   className={cn(
-                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95",
-                    user 
-                      ? "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-50 hover:text-black cursor-pointer shadow-lg shadow-blue-500/10" 
-                      : "bg-white/5 border-white/5 text-slate-600 cursor-not-allowed"
+                    "flex-1 min-w-[200px] flex items-center justify-center gap-3 px-6 py-4 rounded-xl border font-bold transition-all active:scale-95 shadow-lg",
+                    isAdmin
+                      ? "border-blue-500/20 bg-blue-500/10 text-blue-400 hover:bg-blue-50 hover:text-black shadow-blue-500/10"
+                      : "border-white/5 bg-white/5 text-slate-600 grayscale cursor-not-allowed"
                   )}
                 >
                   {isExportingDB ? (
@@ -1210,15 +1172,15 @@ export default function App() {
                   )}
                   <div className="text-left">
                     <p className="text-xs uppercase tracking-wider leading-none mb-1">Xuất báo cáo Excel</p>
-                    <p className="text-[9px] font-medium opacity-60">Fetch from Firestore Database</p>
+                    <p className="text-[9px] font-medium opacity-60">Fetch from Internal Server</p>
                   </div>
                 </button>
               </div>
               
-              {!user && (
-                <div className="mt-4 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center gap-3">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                  <p className="text-[10px] text-amber-200/70 font-medium">Bạn cần nhấn <strong className="text-amber-400">"Kết nối Database"</strong> ở trên cùng để sử dụng các tính năng đẩy dữ liệu NCKH này.</p>
+              {!isAdmin && (
+                <div className="mt-4 p-3 bg-red-500/5 border border-red-500/20 rounded-xl flex items-center gap-3">
+                  <Lock className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <p className="text-[10px] text-red-200/70 font-medium">Bạn cần nhấn <strong className="text-red-400">"Đăng nhập Admin"</strong> ở phía trên để kích hoạt các công cụ nén & đẩy dữ liệu mô phỏng.</p>
                 </div>
               )}
             </div>
@@ -1474,9 +1436,21 @@ export default function App() {
                   </div>
                 </div>
                 <div className="bg-[#0a0a0c] rounded-lg p-3 text-xs font-mono border border-white/5 shadow-inner">
-                  <p className="text-red-400 font-bold tracking-tight">STATUS: ALERT_SENT_V2X</p>
-                  <p className="text-slate-400">PROTOCOL: DSRC_WAVE</p>
-                  <p className="text-slate-400">BLOCKCHAIN: <span className="animate-pulse">RECORDING...</span></p>
+                  <p className="text-red-400 font-bold tracking-tight mb-1">STATUS: ALERT_SENT_V2X</p>
+                  <p className="text-slate-400 mb-1">PROTOCOL: DSRC_WAVE</p>
+                  
+                  <button 
+                    onClick={sendManualSimulationData}
+                    disabled={isSendingManualData}
+                    className="mt-2 w-full flex items-center justify-center gap-2 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-red-500/20"
+                  >
+                    {isSendingManualData ? (
+                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <Database className="w-3 h-3" />
+                    )}
+                    LƯU SỰ CỐ VÀO BLOCKCHAIN
+                  </button>
                 </div>
               </motion.div>
             )}
@@ -1565,68 +1539,65 @@ export default function App() {
               </div>
             </div>
 
-            <div className="space-y-4 relative">
+            <div className="space-y-4 relative max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
               {/* Timeline line */}
               <div className="absolute left-[15px] top-4 bottom-4 w-px bg-white/5"></div>
 
+              {blockchain.length === 0 && (
+                <div className="text-center py-10 opacity-50 italic text-xs">Đang tải dữ liệu Blockchain...</div>
+              )}
+
               {blockchain.slice().reverse().map((block, idx) => {
-                const isAccident = block.hash.toLowerCase().includes('accident');
+                const isAccident = block.hash.toLowerCase().includes('accident') || block.messages.some((m: any) => m.type === 'ACCIDENT' || m.type === 'ACCIDENT_EVENT');
+                
                 return (
-                  <div key={`${block.hash}-${block.index}-${idx}`} className="relative pl-10 group">
+                  <div key={`${block.hash}-${block.index}-${idx}`} className="relative pl-12 group">
+                    {/* Icon Container (Left side) */}
                     <div className={cn(
-                      "absolute left-0 top-1 w-8 h-8 rounded-lg border flex items-center justify-center z-10 shadow-xl transition-transform group-hover:scale-110",
-                      isAccident ? "bg-red-500/20 border-red-500/40" : "bg-white/5 border-white/10"
+                      "absolute left-0 top-[10px] w-10 h-10 rounded-xl border flex items-center justify-center z-10 shadow-lg transition-all",
+                      isAccident 
+                        ? "bg-red-500/10 border-red-500/20 text-red-400" 
+                        : "bg-white/5 border-white/10 text-emerald-500/80"
                     )}>
-                      {isAccident ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <History className="w-4 h-4 text-emerald-400" />}
+                      {isAccident ? <AlertTriangle className="w-5 h-5" /> : <History className="w-5 h-5" />}
                     </div>
+
+                    {/* Simplified Block Card */}
                     <div className={cn(
-                      "bg-white/[0.03] border rounded-xl p-4 hover:bg-white/[0.05] transition-all group shadow-lg",
-                      isAccident ? "border-red-500/30 bg-red-500/5 shadow-red-500/5" : "border-white/5"
+                      "bg-[#1a1a1e]/60 border rounded-2xl p-4 mb-4 hover:bg-[#1a1a1e]/80 transition-all shadow-xl group",
+                      isAccident ? "border-red-500/20" : "border-white/5"
                     )}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "text-[10px] font-bold px-2 py-0.5 rounded border shadow-inner",
-                            isAccident ? "bg-red-500 text-white border-red-400" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      {/* Badge & Status Line */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "px-3 py-1 rounded-md text-[11px] font-black tracking-tight",
+                            isAccident ? "bg-red-500 text-white" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                           )}>
-                            {isAccident ? 'ACCIDENT EVENT' : `BLOCK #${block.index}`}
-                          </span>
-                          <span className="text-[8px] text-emerald-400/80 font-bold flex items-center gap-0.5 opacity-60">
-                            <ShieldCheck className="w-2 h-2" />
-                            SECURED
-                          </span>
+                            BLOCK #{block.index}
+                          </div>
+                          <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-400/50 uppercase">
+                            <ShieldCheck className="w-3 h-3" /> SECURED
+                          </div>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-mono">{new Date(block.timestamp).toLocaleTimeString()}</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {new Date(block.timestamp).toLocaleTimeString([], { hour12: false })}
+                        </span>
                       </div>
                       
-                      {isAccident ? (
-                        <div className="bg-black/20 border border-white/5 rounded-lg p-2.5 mb-2.5 space-y-1 font-mono text-[10px]">
-                          <div className="text-red-400 font-bold mb-1 flex items-center gap-1.5 underline decoration-red-900">
-                            <AlertTriangle className="w-3 h-3" />
-                            GHI BLOCK RIÊNG:
-                          </div>
-                          <div className="space-y-1 opacity-70">
-                            <div className="text-white"><span className="text-slate-500">Type:</span> Accident Event</div>
-                            <div className="text-white"><span className="text-slate-500">Vehicle:</span> V_01 (Host)</div>
-                            <div className="text-white"><span className="text-slate-500">GPS:</span> {block.messages[0].data.lat.toFixed(6)}, {block.messages[0].data.lng.toFixed(6)}</div>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-500 font-mono truncate mb-2 group-hover:text-slate-400">Hash: {block.hash}</p>
-                      )}
+                      {/* Hash Line */}
+                      <div className="mb-4">
+                        <p className="text-[10px] text-slate-500 font-mono truncate leading-relaxed">
+                          <span className="text-slate-600">Hash:</span> {block.hash}
+                        </p>
+                      </div>
 
+                      {/* Transaction Count (Matches Image) */}
                       <div className="flex items-center gap-2">
-                        <div className="flex -space-x-2">
-                          {block.messages.slice(0, 3).map((m, i) => (
-                            <div key={i} className={cn(
-                              "w-5 h-5 rounded-full border border-[#1a1a1e] flex items-center justify-center text-[8px] font-bold shadow-lg",
-                              m.type === 'COLLISION_ALERT' ? "bg-red-500 text-white" : "bg-slate-700 text-slate-400"
-                            )}>
-                              {m.type === 'COLLISION_ALERT' ? "!" : "H"}
-                            </div>
-                          ))}
+                        <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-[10px] text-white font-black shadow-lg">
+                          !
                         </div>
-                        <span className="text-[10px] text-slate-500 group-hover:text-slate-400">
+                        <span className="text-[10px] font-bold text-slate-500/80">
                           {block.messages.length} txs recorded
                         </span>
                       </div>
@@ -2245,6 +2216,81 @@ export default function App() {
           </div>
         </div>
       </section>
+
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-md bg-[#1a1a1e] border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-blue-500"></div>
+              
+              <div className="flex flex-col items-center text-center mb-8">
+                <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/20 mb-4">
+                  <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">Quyền truy cập Admin</h3>
+                <p className="text-sm text-slate-400">Dự án V2X-Blockchain Control Center</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Nhập mã truy cập (Access Code)</label>
+                  <div className="relative">
+                    <input 
+                      type="password"
+                      autoFocus
+                      required
+                      value={accessCodeInput}
+                      onChange={(e) => setAccessCodeInput(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 text-white font-mono focus:outline-none focus:border-emerald-500/50 transition-all"
+                    />
+                    <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600" />
+                  </div>
+                  {loginError && (
+                    <motion.p 
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="text-[10px] text-red-400 font-bold mt-2 pl-1"
+                    >
+                      {loginError}
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowLoginModal(false);
+                      setLoginError('');
+                      setAccessCodeInput('');
+                    }}
+                    className="flex-1 px-4 py-4 rounded-xl text-slate-400 font-bold hover:bg-white/5 transition-all"
+                  >
+                    Hủy bỏ
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-2 px-4 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
+                  >
+                    Xác thực hệ thống
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-8 pt-6 border-t border-white/5 text-center">
+                <p className="text-[10px] text-slate-600 italic">Mã được cấp bởi Quản trị viên NCKH V2X</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
